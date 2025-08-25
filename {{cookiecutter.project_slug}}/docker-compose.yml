@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: services/main/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+    {% if cookiecutter.database != "none" -%}
+    depends_on:
+      - database
+    {% endif -%}
+    volumes:
+      - .:/app
+      - /app/.pants.d  # Don't mount build cache
+
+  {% if cookiecutter.frontend_framework == "react" -%}
+  web:
+    build:
+      context: apps/web
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+  {% endif -%}
+
+  {% if cookiecutter.database == "postgresql" -%}
+  database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: {{cookiecutter.project_slug}}
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  {% endif -%}
+
+  {% if cookiecutter.caching == "redis" -%}
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  {% endif -%}
+
+  {% if cookiecutter.ml_framework != "none" -%}
+  mlflow:
+    image: mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=sqlite:///mlflow.db
+    volumes:
+      - mlflow_data:/mlflow
+  {% endif -%}
+
+{% if cookiecutter.database == "postgresql" -%}
+volumes:
+  postgres_data:
+{% endif -%}
+{% if cookiecutter.ml_framework == "pytorch" -%}
+  mlflow_data:
+{% endif -%}

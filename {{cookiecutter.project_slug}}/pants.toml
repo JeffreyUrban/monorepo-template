@@ -1,0 +1,37 @@
+[GLOBAL]
+pants_version = "2.27"
+backend_packages = [
+  "pants.backend.python",
+  {% if cookiecutter.frontend_framework == "react" -%}
+  "pants.backend.javascript",
+  {% endif -%}
+  "pants.backend.docker",
+]
+
+[python]
+interpreter_constraints = ["=={{cookiecutter.python_version}}.*"]
+enable_resolves = true
+
+[python.resolves]
+python-default = "requirements/default.txt"
+{% if cookiecutter.ml_framework != "none" -%}
+data-science = "requirements/ml.txt"
+{% endif -%}
+{% if cookiecutter.frontend_framework == "react" -%}
+web = "requirements/web.txt"
+{% endif -%}
+
+{% if cookiecutter.frontend_framework == "react" -%}
+[javascript]
+nodejs_version = "24"
+package_manager = "npm"
+{% endif -%}
+
+[docker]
+default_repository = "{{cookiecutter.project_slug}}"
+
+[test]
+use_coverage = true
+
+[mypy]
+config = "pyproject.toml"

@@ -1,0 +1,72 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: {{cookiecutter.python_version}}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - uses: pantsbuild/actions/init-pants@v5-scie-pants
+      with:
+        gha-cache-key: cache0-py${{ env.PYTHON_VERSION }}
+
+    - name: Check BUILD files
+      run: ./pants tailor --check update-build-files --check ::
+
+    - name: Lint
+      run: ./pants lint --changed-since=origin/main
+
+    - name: Test
+      run: ./pants test --changed-since=origin/main --coverage-report=xml
+
+    - name: Build packages
+      run: ./pants package --changed-since=origin/main
+
+  {% if cookiecutter.ml_framework == "pytorch" -%}
+  train-models:
+    if: contains(github.event.head_commit.modified, 'models/')
+    runs-on: ubuntu-latest  # Use GPU runners for real training
+    steps:
+    - uses: actions/checkout@v4
+    - uses: pantsbuild/actions/init-pants@v5-scie-pants
+
+    - name: Train models
+      run: ./pants run models/main-model:train
+
+    - name: Validate models
+      run: ./pants test models/main-model/tests::
+  {% endif -%}
+
+  {% if cookiecutter.frontend_framework == "react" -%}
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: pantsbuild/actions/init-pants@v5-scie-pants
+
+    - name: Build frontend
+      run: ./pants run apps/web:build
+
+    - name: Test frontend
+      run: ./pants test apps/web::
+  {% endif -%}
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: [test{% if cookiecutter.frontend_framework == "react" %}, frontend{% endif %}]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Deploy
+      run: ./scripts/deploy.py --target={{cookiecutter.deployment_target}}

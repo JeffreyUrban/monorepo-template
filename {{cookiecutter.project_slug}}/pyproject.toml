@@ -1,0 +1,19 @@
+[tool.black]
+line-length = 88
+target-version = ["py{{cookiecutter.python_version.replace('.', '')}}"]
+
+[tool.ruff]
+select = ["E", "F", "I", "UP", "S"]
+line-length = 88
+
+[tool.mypy]
+python_version = "{{cookiecutter.python_version}}"
+strict = true
+warn_unused_configs = true
+plugins = []
+
+[tool.pytest.ini_options]
+addopts = "--cov --cov-report=term-missing"
+testpaths = ["services", "packages", "models"]
+
+# Just config—no build‐system table because Pants handles packaging.
