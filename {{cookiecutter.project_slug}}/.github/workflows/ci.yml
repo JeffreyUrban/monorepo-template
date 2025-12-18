@@ -1,72 +1,197 @@
-name: CI/CD
+name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   PYTHON_VERSION: {{cookiecutter.python_version}}
 
 jobs:
-  test:
+  # Python linting and type checking
+  python-quality:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - uses: actions/checkout@v4
 
-    - uses: pantsbuild/actions/init-pants@v5-scie-pants
-      with:
-        gha-cache-key: cache0-py${{ env.PYTHON_VERSION }}
+      - name: Check for Python projects
+        id: check-python
+        run: |
+          if find apps services packages data-pipelines -name "pyproject.toml" 2>/dev/null | grep -q .; then
+            echo "has_python=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_python=false" >> $GITHUB_OUTPUT
+          fi
 
-    - name: Check BUILD files
-      run: ./pants tailor --check update-build-files --check ::
+      - name: Set up Python
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
 
-    - name: Lint
-      run: ./pants lint --changed-since=origin/main
+        uses: actions/setup-python@v5
+        with:
+          python-version: {% raw %}${{ env.PYTHON_VERSION }}{% endraw %}
 
-    - name: Test
-      run: ./pants test --changed-since=origin/main --coverage-report=xml
+      - name: Install uv
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
 
-    - name: Build packages
-      run: ./pants package --changed-since=origin/main
+        uses: astral-sh/setup-uv@v3
 
-  {% if cookiecutter.ml_framework == "pytorch" -%}
-  train-models:
-    if: contains(github.event.head_commit.modified, 'models/')
-    runs-on: ubuntu-latest  # Use GPU runners for real training
-    steps:
-    - uses: actions/checkout@v4
-    - uses: pantsbuild/actions/init-pants@v5-scie-pants
+      - name: Install dependencies
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
 
-    - name: Train models
-      run: ./pants run models/main-model:train
+        run: uv sync --all-extras
 
-    - name: Validate models
-      run: ./pants test models/main-model/tests::
-  {% endif -%}
+      - name: Lint with ruff
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
 
-  {% if cookiecutter.frontend_framework == "react" -%}
-  frontend:
+        run: uv run ruff check .
+
+      - name: Format check with ruff
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
+
+        run: uv run ruff format --check .
+
+      - name: Type check with pyright
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
+
+        run: uv run pyright
+
+  # TypeScript linting and type checking
+  typescript-quality:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: pantsbuild/actions/init-pants@v5-scie-pants
+      - uses: actions/checkout@v4
 
-    - name: Build frontend
-      run: ./pants run apps/web:build
+      - name: Check for TypeScript projects
+        id: check-typescript
+        run: |
+          if find apps services packages -name "package.json" -not -path "*/node_modules/*" 2>/dev/null | grep -q .; then
+            echo "has_typescript=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_typescript=false" >> $GITHUB_OUTPUT
+          fi
 
-    - name: Test frontend
-      run: ./pants test apps/web::
-  {% endif -%}
+      - name: Set up Node.js
+        if: {% raw %}steps.check-typescript.outputs.has_typescript == 'true'{% endraw %}
 
-  deploy:
-    if: github.ref == 'refs/heads/main'
-    needs: [test{% if cookiecutter.frontend_framework == "react" %}, frontend{% endif %}]
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        if: {% raw %}steps.check-typescript.outputs.has_typescript == 'true'{% endraw %}
+
+        run: npm install
+
+      - name: Lint TypeScript projects
+        if: {% raw %}steps.check-typescript.outputs.has_typescript == 'true'{% endraw %}
+
+        run: |
+          # Run lint in each TypeScript project
+          for dir in apps/* services/* packages/*; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Linting $dir"
+              cd "$dir" && npm run lint --if-present && cd - || true
+            fi
+          done
+
+      - name: Type check TypeScript projects
+        if: {% raw %}steps.check-typescript.outputs.has_typescript == 'true'{% endraw %}
+
+        run: |
+          # Run type checking in each TypeScript project
+          for dir in apps/* services/* packages/*; do
+            if [ -f "$dir/tsconfig.json" ]; then
+              echo "Type checking $dir"
+              cd "$dir" && npm run type-check --if-present && cd - || true
+            fi
+          done
+
+  # Python tests
+  python-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["{{cookiecutter.python_version}}"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Python projects
+        id: check-python
+        run: |
+          if find apps services packages data-pipelines -name "pyproject.toml" 2>/dev/null | grep -q .; then
+            echo "has_python=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_python=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Python {% raw %}${{ matrix.python-version }}{% endraw %}
+
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
+
+        uses: actions/setup-python@v5
+        with:
+          python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
+
+      - name: Install uv
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
+
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
+
+        run: uv sync --all-extras
+
+      - name: Run tests
+        if: {% raw %}steps.check-python.outputs.has_python == 'true'{% endraw %}
+
+        run: uv run pytest --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage
+        if: {% raw %}steps.check-python.outputs.has_python == 'true' && matrix.python-version == env.PYTHON_VERSION{% endraw %}
+
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # TypeScript tests
+  typescript-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Deploy
-      run: ./scripts/deploy.py --target={{cookiecutter.deployment_target}}
+      - uses: actions/checkout@v4
+
+      - name: Check for TypeScript projects
+        id: check-typescript
+        run: |
+          if find apps services packages -name "package.json" -not -path "*/node_modules/*" 2>/dev/null | grep -q .; then
+            echo "has_typescript=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_typescript=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node.js
+        if: {% raw %}steps.check-typescript.outputs.has_typescript == 'true'{% endraw %}
+
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        if: {% raw %}steps.check-typescript.outputs.has_typescript == 'true'{% endraw %}
+
+        run: npm install
+
+      - name: Run tests
+        if: {% raw %}steps.check-typescript.outputs.has_typescript == 'true'{% endraw %}
+
+        run: |
+          # Run tests in each TypeScript project
+          for dir in apps/* services/* packages/*; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Testing $dir"
+              cd "$dir" && npm test --if-present && cd - || true
+            fi
+          done

@@ -1,36 +1,18 @@
 {
-  "project_name": "My Project",
-  "project_slug": "{{ cookiecutter.project_name|lower|replace(' ', '-') }}",
-
-  "include_api": ["y", "n"],
-  "include_data_pipeline": ["y", "n"],
-
-  "frontend_framework": ["none", "react"],
-
-  "ml_framework": ["none", "pytorch", "scikit-learn"],
-
-  "database": [
-    "none",
-    "postgresql",
-    "sqlite"
-  ],
-
-  "caching": [
-    "none",
-    "redis"
-  ],
-
-  "monitoring": [
-    "none",
-    "prometheus"
-  ],
-
-  "namespace": "{{ cookiecutter.project_slug.replace('-', '') }}",
-  "description": "A brief description of the project",
-  "author_name": "Author Name",
-  "author_email": "author@email.mail",
-  "python_version": "3.13",
-
-  "deployment_target": ["docker", "kubernetes", "cloud-run"],
-  "ci_provider": ["github-actions"]
+  "project_name": "My Monorepo",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-').replace('_', '-') }}",
+  "project_description": "A brief description of this monorepo",
+  "author_name": "Your Name",
+  "author_email": "(optional)",
+  "github_username": "your-github-username",
+  "python_version": "3.14",
+  "license": ["MIT", "Apache-2.0", "BSD-3-Clause", "GPL-3.0", "None"],
+  "_copy_without_render": [
+    "*.svg",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.ico"
+  ]
 }

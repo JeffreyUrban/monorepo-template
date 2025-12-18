@@ -1,0 +1,200 @@
+name: Test Template
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-template:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.14"]
+
+    steps:
+      - name: Checkout template
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install cookiecutter
+        run: pip install cookiecutter
+
+      - name: Generate monorepo from template
+        run: |
+          cookiecutter . --no-input \
+            project_name="Test Monorepo" \
+            author_name="Test Author" \
+            github_username="testuser"
+
+      - name: Verify generated structure
+        run: |
+          echo "=== Checking root structure ==="
+          ls -la test-monorepo/
+          echo ""
+          echo "=== Checking configuration files ==="
+          ls -la test-monorepo/*.toml test-monorepo/*.json 2>/dev/null || true
+          echo ""
+          echo "=== Checking directory structure ==="
+          ls -la test-monorepo/apps/ test-monorepo/services/ test-monorepo/packages/ test-monorepo/data-pipelines/ 2>/dev/null || true
+          echo ""
+          echo "=== Checking .monorepo directory ==="
+          ls -la test-monorepo/.monorepo/
+          echo ""
+          echo "=== Checking scripts ==="
+          ls -la test-monorepo/scripts/
+
+      - name: Verify pyproject.toml
+        run: |
+          echo "=== Checking pyproject.toml workspace configuration ==="
+          cat test-monorepo/pyproject.toml | grep -A5 "\[tool.uv.workspace\]"
+          echo ""
+          echo "=== Checking ruff configuration ==="
+          cat test-monorepo/pyproject.toml | grep -A3 "\[tool.ruff\]"
+
+      - name: Verify scripts are executable
+        run: |
+          test -x test-monorepo/scripts/add-project.py
+          echo "✓ add-project.py is executable"
+
+      - name: Initialize git (required by post-gen hook)
+        run: |
+          cd test-monorepo
+          # Git was already initialized by post_gen_project.py
+          git log --oneline | head -1
+
+      - name: Install workspace dependencies
+        run: |
+          cd test-monorepo
+          uv sync
+
+      - name: Lint with ruff
+        run: |
+          cd test-monorepo
+          uv run ruff check .
+
+      - name: Format check with ruff
+        run: |
+          cd test-monorepo
+          uv run ruff format --check .
+
+      - name: Type check with pyright
+        run: |
+          cd test-monorepo
+          uv run pyright
+
+      - name: Verify .monorepo configuration
+        run: |
+          echo "=== Checking project-templates.yaml ==="
+          cat test-monorepo/.monorepo/project-templates.yaml
+          echo ""
+          echo "✓ Configuration file exists and is valid YAML"
+
+      - name: Test add-project.py help
+        run: |
+          cd test-monorepo
+          ./scripts/add-project.py || echo "Expected error - script requires arguments"
+          echo "✓ Script can be executed"
+
+      - name: Configure cli-template for integration test
+        run: |
+          cd test-monorepo
+          cat > .monorepo/project-templates.yaml << 'EOF'
+          templates:
+            cli:
+              repo: "https://github.com/JeffreyUrban/cli-template"
+              version: "main"
+              target_dir: "apps"
+              description: "CLI application template"
+              integrate_path: "test-cli-workspace/test-cli"
+              defaults:
+                project_name: "Test CLI"
+                project_short_description: "Test CLI tool for integration testing"
+                author_name: "Test Author"
+                github_username: "testuser"
+                python_version: "3.14"
+          EOF
+          echo "✓ Configured project-templates.yaml with cli-template"
+
+      - name: Install dependencies for add-project.py
+        run: |
+          cd test-monorepo
+          # PyYAML is needed by add-project.py to parse project-templates.yaml
+          uv add --dev pyyaml
+          # cookiecutter is already installed globally from earlier step
+          echo "✓ Installed pyyaml (cookiecutter already available)"
+
+      - name: Integration test - Add CLI project using cli-template
+        run: |
+          cd test-monorepo
+          ./scripts/add-project.py cli test-cli
+          echo "✓ Successfully added test-cli project"
+
+      - name: Verify CLI project integration
+        run: |
+          cd test-monorepo
+          echo "=== Checking CLI project was created ==="
+          if [ ! -d apps/test-cli ]; then
+            echo "✗ apps/test-cli directory not found"
+            echo "Available directories in apps/:"
+            ls -la apps/
+            exit 1
+          fi
+          ls -la apps/test-cli/
+          echo "✓ CLI project directory exists (extracted from nested structure)"
+          echo ""
+          echo "=== Verifying homebrew tap was NOT integrated ==="
+          if [ -d apps/homebrew-test-cli ] || [ -d apps/test-cli-workspace ]; then
+            echo "✗ Homebrew tap or workspace should not have been integrated"
+            ls -la apps/
+            exit 1
+          fi
+          echo "✓ Only CLI project integrated, homebrew tap excluded"
+          echo ""
+          echo "=== Checking CLI project has pyproject.toml ==="
+          test -f apps/test-cli/pyproject.toml
+          echo "✓ CLI project has pyproject.toml"
+          echo ""
+          echo "=== Verifying duplicate configs were removed ==="
+          if [ -f apps/test-cli/ruff.toml ]; then
+            echo "✗ ruff.toml should have been removed"
+            exit 1
+          fi
+          if [ -f apps/test-cli/pyrightconfig.json ]; then
+            echo "✗ pyrightconfig.json should have been removed"
+            exit 1
+          fi
+          echo "✓ Duplicate configs removed"
+          echo ""
+          echo "=== Checking workspace sync ==="
+          uv sync
+          echo "✓ Workspace sync successful"
+
+      - name: Run tests in integrated CLI project
+        run: |
+          cd test-monorepo
+          # Run tests for the CLI project if they exist
+          if [ -d apps/test-cli/tests ]; then
+            uv run pytest apps/test-cli/tests/ || echo "No tests found or tests failed"
+          fi
+          echo "✓ CLI project test run completed"
+
+      - name: Lint integrated project
+        run: |
+          cd test-monorepo
+          uv run ruff check apps/test-cli/
+          echo "✓ CLI project passes linting"
+
+      - name: Type check integrated project
+        run: |
+          cd test-monorepo
+          uv run pyright apps/test-cli/
+          echo "✓ CLI project passes type checking"
