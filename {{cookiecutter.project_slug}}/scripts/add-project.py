@@ -142,19 +142,14 @@ def move_nested_project(project_path: Path, target_dir: Path) -> Path:
         shutil.move(str(project_path), str(final_path))
         print(f"  Moved {project_path.relative_to(target_dir)} → {final_path.name}")
 
-        # Clean up the wrapper directory if it's now empty or only contains other projects
+        # Clean up the wrapper directory (remove entirely, including any siblings like homebrew taps)
         wrapper_dir = project_path.parent
         if wrapper_dir.exists() and wrapper_dir != target_dir:
             try:
-                # Try to remove - will fail if not empty, which is fine
-                remaining = list(wrapper_dir.iterdir())
-                if remaining:
-                    print(f"  Cleaned up wrapper directory, skipping non-empty: {wrapper_dir.name}")
-                else:
-                    shutil.rmtree(wrapper_dir)
-                    print(f"  Removed empty wrapper directory: {wrapper_dir.name}")
-            except OSError:
-                pass  # Directory not empty, that's ok
+                shutil.rmtree(wrapper_dir)
+                print(f"  Removed wrapper directory: {wrapper_dir.name}")
+            except OSError as e:
+                print(f"  Warning: Could not remove wrapper directory {wrapper_dir.name}: {e}")
 
         return final_path
 
@@ -167,15 +162,171 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
 
     This function demonstrates the integration pattern. Customize based on your needs.
 
-    Common integration tasks:
-    1. Detect project type (Python vs TypeScript)
-    2. Remove duplicate configs (use monorepo's shared configs instead)
-    3. Add to appropriate workspace (uv for Python, npm/pnpm for TypeScript)
-    4. Update workspace configuration
+    Integration tasks:
+    1. Remove git repository (monorepo is the only git repo)
+    2. Merge pre-commit hooks to monorepo config (with file patterns)
+    3. Migrate GitHub workflows to monorepo (with path filters)
+    4. Fix git-based versioning (hatch-vcs, setuptools-scm)
+    5. Detect project type (Python vs TypeScript)
+    6. Remove duplicate configs (use monorepo's shared configs instead)
+    7. Add to appropriate workspace (uv for Python, npm/pnpm for TypeScript)
+    8. Update workspace configuration
     """
+    import shutil
+
     print(f"\nIntegrating {project_path.name} into monorepo...")
 
-    # 1. Detect project type
+    # 1. Remove git repository (monorepo should be the only git repo)
+    git_dir = project_path / ".git"
+    if git_dir.exists():
+        shutil.rmtree(git_dir)
+        print("  Removed .git directory (using monorepo's git)")
+
+    # Keep .gitignore - project-specific ignores are useful!
+    gitignore_path = project_path / ".gitignore"
+    if gitignore_path.exists():
+        print("  Kept .gitignore (project-specific ignores)")
+
+    # 2. Migrate pre-commit hooks to monorepo level
+    precommit_file = project_path / ".pre-commit-config.yaml"
+    if precommit_file.exists():
+        monorepo_precommit = monorepo_root / ".pre-commit-config.yaml"
+        project_rel_path = project_path.relative_to(monorepo_root)
+
+        # Read project's pre-commit config
+        import yaml
+
+        with open(precommit_file) as f:
+            project_hooks = yaml.safe_load(f)
+
+        if monorepo_precommit.exists():
+            with open(monorepo_precommit) as f:
+                monorepo_hooks = yaml.safe_load(f)
+        else:
+            monorepo_hooks = {"repos": []}
+
+        # Merge hooks with file patterns
+        if project_hooks and "repos" in project_hooks:
+            for repo in project_hooks["repos"]:
+                # Add file pattern to restrict hooks to this project
+                if "hooks" in repo:
+                    for hook in repo["hooks"]:
+                        if "files" not in hook:
+                            hook["files"] = f"^{project_rel_path}/"
+
+                # Check if repo already exists in monorepo config
+                existing_repo = next(
+                    (r for r in monorepo_hooks["repos"] if r.get("repo") == repo.get("repo")), None
+                )
+
+                if existing_repo:
+                    # Merge hooks from this repo
+                    existing_hooks = {h["id"]: h for h in existing_repo.get("hooks", [])}
+                    for hook in repo.get("hooks", []):
+                        if hook["id"] not in existing_hooks:
+                            existing_repo.setdefault("hooks", []).append(hook)
+                else:
+                    # Add new repo
+                    monorepo_hooks["repos"].append(repo)
+
+            # Write updated monorepo pre-commit config
+            with open(monorepo_precommit, "w") as f:
+                yaml.dump(monorepo_hooks, f, default_flow_style=False, sort_keys=False)
+
+            print(f"  Merged pre-commit hooks to monorepo config (scoped to {project_rel_path}/)")
+
+        # Remove project's pre-commit config after merging
+        precommit_file.unlink()
+
+    # 3. Migrate GitHub workflows to monorepo level
+    github_dir = project_path / ".github"
+    if github_dir.exists():
+        workflows_dir = github_dir / "workflows"
+        monorepo_workflows = monorepo_root / ".github" / "workflows"
+
+        if workflows_dir.exists() and any(workflows_dir.iterdir()):
+            monorepo_workflows.mkdir(parents=True, exist_ok=True)
+            project_rel_path = project_path.relative_to(monorepo_root)
+
+            # Move workflows with path filters
+            migrated_count = 0
+            for workflow_file in workflows_dir.glob("*.y*ml"):
+                # Read workflow
+                content = workflow_file.read_text()
+
+                # Add path filter if not present
+                if "paths:" not in content and "on:" in content:
+                    # Add path filter after the 'on:' trigger
+                    import re
+
+                    # Find the trigger section and add paths
+                    content = re.sub(
+                        r"(on:\s*\n\s*(?:push|pull_request):)",
+                        f"\\1\n    paths:\n      - '{project_rel_path}/**'",
+                        content,
+                    )
+
+                # Write to monorepo workflows with project prefix
+                new_name = f"{project_path.name}-{workflow_file.name}"
+                new_path = monorepo_workflows / new_name
+                new_path.write_text(content)
+                migrated_count += 1
+
+            if migrated_count > 0:
+                print(
+                    f"  Migrated {migrated_count} workflow(s) to monorepo .github/workflows/ (with path filters)"
+                )
+
+        # Remove project's .github directory
+        shutil.rmtree(github_dir)
+
+    # 4. Fix git-based versioning for monorepo
+    pyproject_file = project_path / "pyproject.toml"
+    if pyproject_file.exists():
+        import re
+        import tomllib
+
+        content = pyproject_file.read_text()
+
+        # Check for git-based versioning tools
+        if "hatch-vcs" in content or "hatch_vcs" in content:
+            # hatch-vcs: Add configuration to search parent directories
+            if "[tool.hatch.version]" in content:
+                if "root" not in content:
+                    # Find the monorepo root relative to the project
+                    import os
+
+                    rel_path = os.path.relpath(monorepo_root, project_path)
+                    content = content.replace(
+                        "[tool.hatch.version]", f'[tool.hatch.version]\nroot = "{rel_path}"'
+                    )
+                    pyproject_file.write_text(content)
+                    print("  Configured hatch-vcs to use monorepo's git")
+            else:
+                # Add the configuration section
+                import os
+
+                rel_path = os.path.relpath(monorepo_root, project_path)
+                content += f'\n[tool.hatch.version]\nsource = "vcs"\nroot = "{rel_path}"\n'
+                pyproject_file.write_text(content)
+                print("  Added hatch-vcs configuration for monorepo")
+
+        elif "setuptools-scm" in content or "setuptools_scm" in content:
+            # setuptools-scm: Add search_parent_directories = true
+            if "[tool.setuptools_scm]" in content:
+                if "search_parent_directories" not in content:
+                    content = content.replace(
+                        "[tool.setuptools_scm]",
+                        "[tool.setuptools_scm]\nsearch_parent_directories = true",
+                    )
+                    pyproject_file.write_text(content)
+                    print("  Configured setuptools-scm to search parent directories")
+            else:
+                content += "\n[tool.setuptools_scm]\nsearch_parent_directories = true\n"
+                pyproject_file.write_text(content)
+                print("  Added setuptools-scm configuration for monorepo")
+
+    # 5. Detect project type
     has_pyproject = (project_path / "pyproject.toml").exists()
     has_package_json = (project_path / "package.json").exists()
 
@@ -192,7 +343,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
         print("  Warning: Unknown project type (no pyproject.toml or package.json)")
         project_type = "unknown"
 
-    # 2. Remove duplicate configuration files for Python projects
+    # 6. Remove duplicate configuration files for Python projects
     if project_type in ["python", "hybrid"]:
         duplicate_configs = [
             "ruff.toml",
@@ -207,7 +358,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
                 print(f"  Removing duplicate config: {config_file}")
                 config_path.unlink()
 
-    # 3. Add to workspace
+    # 7. Add to workspace
     if project_type in ["python", "hybrid"]:
         print("  Python project will be auto-discovered by uv workspace (glob patterns in pyproject.toml)")
 
@@ -239,7 +390,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
 
     print("  ✓ Integration complete!")
 
-    # 4. Update workspaces
+    # 8. Update workspaces
     print("\nUpdating workspaces...")
 
     if project_type in ["python", "hybrid"]:

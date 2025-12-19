@@ -21,13 +21,9 @@ dev = [
 [tool.uv.workspace]
 members = [
     "apps/*",
-    "apps/*/*",  # Support nested workspace structures from templates
     "services/*",
-    "services/*/*",
     "data-pipelines/*",
-    "data-pipelines/*/*",
     "packages/*",
-    "packages/*/*",
 ]
 
 # Workspace-wide dependency version constraints
