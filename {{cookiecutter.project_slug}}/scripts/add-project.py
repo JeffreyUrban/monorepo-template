@@ -221,15 +221,11 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
                 # Simple comparison - just check if they're different
                 # (not perfect but catches most cases)
                 if project_license_content != monorepo_license_content:
-                    print(
-                        f"  ⚠️  WARNING: Project LICENSE differs from monorepo LICENSE"
-                    )
-                    print(
-                        f"      Please review {project_path.relative_to(monorepo_root)}/LICENSE for compatibility"
-                    )
+                    print("  ⚠️  WARNING: Project LICENSE differs from monorepo LICENSE")
+                    print(f"      Please review {project_path.relative_to(monorepo_root)}/LICENSE for compatibility")
             except Exception:
                 # If we can't read/compare, just warn generically
-                print(f"  ⚠️  WARNING: Please verify LICENSE compatibility")
+                print("  ⚠️  WARNING: Please verify LICENSE compatibility")
 
     # 4. Merge .gitattributes to monorepo level
     gitattributes_path = project_path / ".gitattributes"
@@ -309,9 +305,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
                             hook["files"] = f"^{project_rel_path}/"
 
                 # Check if repo already exists in monorepo config
-                existing_repo = next(
-                    (r for r in monorepo_hooks["repos"] if r.get("repo") == repo.get("repo")), None
-                )
+                existing_repo = next((r for r in monorepo_hooks["repos"] if r.get("repo") == repo.get("repo")), None)
 
                 if existing_repo:
                     # Merge hooks from this repo
@@ -367,9 +361,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
                 migrated_count += 1
 
             if migrated_count > 0:
-                print(
-                    f"  Migrated {migrated_count} workflow(s) to monorepo .github/workflows/ (with path filters)"
-                )
+                print(f"  Migrated {migrated_count} workflow(s) to monorepo .github/workflows/ (with path filters)")
 
         # Remove project's .github directory
         shutil.rmtree(github_dir)
@@ -390,9 +382,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
                     import os
 
                     rel_path = os.path.relpath(monorepo_root, project_path)
-                    content = content.replace(
-                        "[tool.hatch.version]", f'[tool.hatch.version]\nroot = "{rel_path}"'
-                    )
+                    content = content.replace("[tool.hatch.version]", f'[tool.hatch.version]\nroot = "{rel_path}"')
                     pyproject_file.write_text(content)
                     print("  Configured hatch-vcs to use monorepo's git")
             else:
