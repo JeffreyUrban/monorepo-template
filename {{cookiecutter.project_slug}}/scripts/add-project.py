@@ -156,7 +156,7 @@ def move_nested_project(project_path: Path, target_dir: Path) -> Path:
     return project_path
 
 
-def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
+def integrate_project(project_path: Path, monorepo_root: Path) -> None:
     """
     Integrate the generated project with monorepo conventions.
 
