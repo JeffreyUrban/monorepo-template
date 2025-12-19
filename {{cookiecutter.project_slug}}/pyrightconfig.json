@@ -1,0 +1,11 @@
+{
+  "pythonVersion": "{{cookiecutter.python_version}}",
+  "typeCheckingMode": "standard",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*"
+  ]
+}

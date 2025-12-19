@@ -1,0 +1,18 @@
+{
+  "project_name": "My Monorepo",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-').replace('_', '-') }}",
+  "project_description": "A brief description of this monorepo",
+  "author_name": "Your Name",
+  "author_email": "(optional)",
+  "github_username": "your-github-username",
+  "python_version": "3.14",
+  "license": ["MIT", "Apache-2.0", "BSD-3-Clause", "GPL-3.0", "None"],
+  "_copy_without_render": [
+    "*.svg",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.ico"
+  ]
+}

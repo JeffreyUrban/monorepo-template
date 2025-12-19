@@ -1,0 +1,16 @@
+{
+  "name": "{{cookiecutter.project_slug}}",
+  "version": "0.1.0",
+  "private": true,
+  "description": "{{cookiecutter.project_description}}",
+  "workspaces": [],
+  "scripts": {
+    "test": "echo 'Run tests in individual TypeScript projects'",
+    "lint": "echo 'Run linting in individual TypeScript projects'",
+    "build": "echo 'Build individual TypeScript projects'"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
