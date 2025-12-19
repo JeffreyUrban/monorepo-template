@@ -1,6 +1,6 @@
 # monorepo-template
 
-**A composable monorepo template that references external project templates**
+**A Python + Typescript monorepo template that composes external project templates**
 
 Unlike traditional monorepo templates that embed all project scaffolding, this template provides the monorepo *structure* and *tooling to add projects later* using your existing cookiecutter templates.
 
