@@ -16,6 +16,7 @@ Unlike traditional monorepo templates that embed all project scaffolding, this t
 - Reference your external templates in a manifest (`.monorepo/project-templates.yaml`)
 - Add projects to the *living monorepo* using `scripts/add-project.py`
 - Automatically integrate new projects with monorepo conventions via hooks
+- Auto-generate JetBrains IDE run configurations based on project scripts
 
 ## Philosophy: Opinionated Where It Matters
 
@@ -60,33 +61,72 @@ If validation fails, you'll see helpful error messages with suggestions for fixi
 
 ### Adding Projects (Post-Generation)
 
-The generated monorepo includes tooling to add projects using external templates:
+The generated monorepo includes tooling to add projects using external templates. **Supports both Cookiecutter templates and GitHub template repositories**:
 
 ```bash
-# In your living, in-development monorepo:
+# Add Python project from cookiecutter template
 ./scripts/add-project.py cli my-awesome-cli
-# → Pulls https://github.com/your-github-username/cli-template
+# → Runs cookiecutter with your CLI template
 # → Places in apps/my-awesome-cli/
-# → Integrates with monorepo conventions (removes duplicate configs, creates workspace entry)
+# → Integrates with monorepo conventions
 
-./scripts/add-project.py api user-service
-# → Pulls https://github.com/your-github-username/api-template
-# → Places in services/user-service/
+# Add React app from GitHub template repository
+./scripts/add-project.py web-react my-web-app
+# → Clones GitHub template directly
+# → Places in apps/my-web-app/
 # → Integrates automatically
 ```
+
+**Template Types**:
+- **Cookiecutter**: Interactive templates with variable prompts (Python projects)
+- **GitHub Templates**: Direct repository clones (TypeScript/React projects)
+
+**Automatic IDE Setup**:
+
+For TypeScript/JavaScript projects, run configurations are automatically generated for JetBrains IDEs (WebStorm, IntelliJ IDEA, PyCharm):
+
+```
+# After adding a project:
+./scripts/add-project.py web-react frontend-app
+
+# Automatically creates:
+.run/frontend-app__Dev_Server.run.xml
+.run/frontend-app__Build.run.xml
+.run/frontend-app__Tests.run.xml
+.run/frontend-app__Lint.run.xml
+# ... and more based on package.json scripts
+
+# In IDE dropdown you'll see:
+# - frontend-app: Dev Server
+# - frontend-app: Build
+# - frontend-app: Tests
+# - frontend-app: Lint
+```
+
+The script detects available npm scripts (`dev`, `build`, `test`, `lint`, `typecheck`, etc.) and creates corresponding run configurations automatically.
 
 **Template manifest** (`.monorepo/project-templates.yaml`):
 ```yaml
 templates:
+  # Cookiecutter templates (Python)
   cli:
+    template_type: "cookiecutter"
     repo: "https://github.com/{{cookiecutter.github_username}}/cli-template"
     version: "main"
     target_dir: "apps"
 
   api:
+    template_type: "cookiecutter"
     repo: "https://github.com/{{cookiecutter.github_username}}/api-template"
     version: "main"
     target_dir: "services"
+
+  # GitHub template repositories (TypeScript/React)
+  web-react:
+    template_type: "github-template"
+    repo: "https://github.com/{{cookiecutter.github_username}}/web-react-router-template"
+    version: "main"
+    target_dir: "apps"
 ```
 
 **Integration hooks** (`.monorepo/integration-hooks/cli.py`):
