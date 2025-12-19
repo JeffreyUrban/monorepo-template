@@ -36,12 +36,27 @@ Unlike traditional monorepo templates that embed all project scaffolding, this t
 ### Initial Setup
 ```bash
 # 1. Generate monorepo skeleton
-cookiecutter gh:your-github-username/monorepo-template
+cookiecutter gh:JeffreyUrban/monorepo-template
 
 # 2. Initialize development environment
 cd my-monorepo
 uv sync
 ```
+
+**Input Requirements**: The template validates all inputs before generation. Here's what's expected:
+
+- **project_name**: Your project's display name (max 100 characters)
+- **project_slug**: Lowercase letters, numbers, and hyphens only (e.g., `my-monorepo`, `caption-ai`)
+  - Must start with a letter and end with a letter or number
+  - The template auto-generates a valid slug from your project name
+  - Max 50 characters
+- **project_description**: Brief description of your monorepo (max 500 characters)
+- **author_name**: Your name (not the default placeholder)
+- **author_email**: Valid email format (or leave as "(optional)")
+- **github_username**: Your GitHub username (1-39 chars, alphanumeric and single hyphens only)
+- **python_version**: Version in format "X.Y" (e.g., "3.11", "3.12"), must be 3.9 or higher
+
+If validation fails, you'll see helpful error messages with suggestions for fixing the issues.
 
 ### Adding Projects (Post-Generation)
 
