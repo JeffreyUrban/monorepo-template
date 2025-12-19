@@ -164,13 +164,16 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
 
     Integration tasks:
     1. Remove git repository (monorepo is the only git repo)
-    2. Merge pre-commit hooks to monorepo config (with file patterns)
-    3. Migrate GitHub workflows to monorepo (with path filters)
-    4. Fix git-based versioning (hatch-vcs, setuptools-scm)
-    5. Detect project type (Python vs TypeScript)
-    6. Remove duplicate configs (use monorepo's shared configs instead)
-    7. Add to appropriate workspace (uv for Python, npm/pnpm for TypeScript)
-    8. Update workspace configuration
+    2. Keep project documentation (README.md, docs/, CONTRIBUTING.md, etc.)
+    3. Handle LICENSE files (keep and warn if different from monorepo)
+    4. Merge .gitattributes to monorepo config (with path prefixes)
+    5. Merge pre-commit hooks to monorepo config (with file patterns)
+    6. Migrate GitHub workflows to monorepo (with path filters)
+    7. Fix git-based versioning (hatch-vcs, setuptools-scm)
+    8. Detect project type (Python vs TypeScript)
+    9. Remove duplicate configs (use monorepo's shared configs instead)
+    10. Add to appropriate workspace (uv for Python, npm/pnpm for TypeScript)
+    11. Update workspace configuration
     """
     import shutil
 
@@ -187,7 +190,98 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
     if gitignore_path.exists():
         print("  Kept .gitignore (project-specific ignores)")
 
-    # 2. Migrate pre-commit hooks to monorepo level
+    # 2. Keep project documentation files
+    doc_files = ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", "CODE_OF_CONDUCT.md"]
+    kept_docs = []
+    for doc_file in doc_files:
+        doc_path = project_path / doc_file
+        if doc_path.exists():
+            kept_docs.append(doc_file)
+
+    docs_dir = project_path / "docs"
+    if docs_dir.exists() and docs_dir.is_dir():
+        kept_docs.append("docs/")
+
+    if kept_docs:
+        print(f"  Kept project documentation: {', '.join(kept_docs)}")
+
+    # 3. Handle LICENSE file
+    license_path = project_path / "LICENSE"
+    monorepo_license = monorepo_root / "LICENSE"
+
+    if license_path.exists():
+        print("  Kept LICENSE file")
+
+        # Warn if license differs from monorepo
+        if monorepo_license.exists():
+            try:
+                project_license_content = license_path.read_text().strip()
+                monorepo_license_content = monorepo_license.read_text().strip()
+
+                # Simple comparison - just check if they're different
+                # (not perfect but catches most cases)
+                if project_license_content != monorepo_license_content:
+                    print(
+                        f"  ⚠️  WARNING: Project LICENSE differs from monorepo LICENSE"
+                    )
+                    print(
+                        f"      Please review {project_path.relative_to(monorepo_root)}/LICENSE for compatibility"
+                    )
+            except Exception:
+                # If we can't read/compare, just warn generically
+                print(f"  ⚠️  WARNING: Please verify LICENSE compatibility")
+
+    # 4. Merge .gitattributes to monorepo level
+    gitattributes_path = project_path / ".gitattributes"
+    if gitattributes_path.exists():
+        monorepo_gitattributes = monorepo_root / ".gitattributes"
+        project_rel_path = project_path.relative_to(monorepo_root)
+
+        # Read project's .gitattributes
+        project_attrs = gitattributes_path.read_text().strip()
+
+        if project_attrs:
+            # Prefix all patterns with the project path
+            prefixed_attrs = []
+            for line in project_attrs.split("\n"):
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    # Split pattern and attributes
+                    parts = line.split(None, 1)
+                    if len(parts) == 2:
+                        pattern, attrs = parts
+                        # Prefix the pattern with project path
+                        prefixed_pattern = f"{project_rel_path}/{pattern}"
+                        prefixed_attrs.append(f"{prefixed_pattern} {attrs}")
+                    else:
+                        # Line has no attributes, keep as-is
+                        prefixed_attrs.append(line)
+                elif line.startswith("#"):
+                    # Keep comments
+                    prefixed_attrs.append(line)
+
+            if prefixed_attrs:
+                # Read existing monorepo .gitattributes
+                existing_content = ""
+                if monorepo_gitattributes.exists():
+                    existing_content = monorepo_gitattributes.read_text().strip()
+
+                # Append project attributes with a header
+                new_section = f"\n# Attributes from {project_path.name}\n" + "\n".join(prefixed_attrs)
+
+                # Write updated .gitattributes
+                with open(monorepo_gitattributes, "a") as f:
+                    if existing_content:
+                        f.write("\n")
+                    f.write(new_section)
+                    f.write("\n")
+
+                print(f"  Merged .gitattributes to monorepo (scoped to {project_rel_path}/)")
+
+        # Remove project's .gitattributes after merging
+        gitattributes_path.unlink()
+
+    # 5. Migrate pre-commit hooks to monorepo level
     precommit_file = project_path / ".pre-commit-config.yaml"
     if precommit_file.exists():
         monorepo_precommit = monorepo_root / ".pre-commit-config.yaml"
@@ -238,7 +332,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
         # Remove project's pre-commit config after merging
         precommit_file.unlink()
 
-    # 3. Migrate GitHub workflows to monorepo level
+    # 6. Migrate GitHub workflows to monorepo level
     github_dir = project_path / ".github"
     if github_dir.exists():
         workflows_dir = github_dir / "workflows"
@@ -280,11 +374,10 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
         # Remove project's .github directory
         shutil.rmtree(github_dir)
 
-    # 4. Fix git-based versioning for monorepo
+    # 7. Fix git-based versioning for monorepo
     pyproject_file = project_path / "pyproject.toml"
     if pyproject_file.exists():
         import re
-        import tomllib
 
         content = pyproject_file.read_text()
 
@@ -326,7 +419,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
                 pyproject_file.write_text(content)
                 print("  Added setuptools-scm configuration for monorepo")
 
-    # 5. Detect project type
+    # 8. Detect project type
     has_pyproject = (project_path / "pyproject.toml").exists()
     has_package_json = (project_path / "package.json").exists()
 
@@ -343,7 +436,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
         print("  Warning: Unknown project type (no pyproject.toml or package.json)")
         project_type = "unknown"
 
-    # 6. Remove duplicate configuration files for Python projects
+    # 9. Remove duplicate configuration files for Python projects
     if project_type in ["python", "hybrid"]:
         duplicate_configs = [
             "ruff.toml",
@@ -358,7 +451,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
                 print(f"  Removing duplicate config: {config_file}")
                 config_path.unlink()
 
-    # 7. Add to workspace
+    # 10. Add to workspace
     if project_type in ["python", "hybrid"]:
         print("  Python project will be auto-discovered by uv workspace (glob patterns in pyproject.toml)")
 
@@ -390,7 +483,7 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> Path:
 
     print("  ✓ Integration complete!")
 
-    # 8. Update workspaces
+    # 11. Update workspaces
     print("\nUpdating workspaces...")
 
     if project_type in ["python", "hybrid"]:
@@ -458,8 +551,11 @@ def main() -> None:
     print("\nNext steps:")
     print(f"  1. cd {project_path.relative_to(monorepo_root)}")
     print("  2. Review the generated code")
-    print("  3. Run tests: pytest")
-    print(f"  4. Commit: git add . && git commit -m 'Add {project_name}'")
+    print("  3. Check for project-specific test configurations:")
+    print("     - pytest.ini, tox.ini, .coveragerc")
+    print("     - Remove if they duplicate monorepo settings, or keep if project-specific")
+    print("  4. Run tests: pytest")
+    print(f"  5. Commit: git add . && git commit -m 'Add {project_name}'")
 
 
 if __name__ == "__main__":
