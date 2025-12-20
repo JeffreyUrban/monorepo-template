@@ -220,7 +220,8 @@ def apply_customizations(project_path: Path, customizations: dict[str, str]) -> 
             # Apply text replacements
             for key, value in customizations.items():
                 # Replace {key} placeholders
-                content = content.replace(f"{{{key}}}", value)
+                placeholder = "{" + key + "}"
+                content = content.replace(placeholder, value)
 
             if content != original_content:
                 file_path.write_text(content)
