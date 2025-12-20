@@ -146,7 +146,7 @@ def clone_github_template(template_config: dict[str, Any], project_name: str, ta
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir) / "template"
 
-        print(f"  Cloning repository...")
+        print("  Cloning repository...")
         try:
             # Clone the specific branch
             subprocess.run(
@@ -170,7 +170,7 @@ def clone_github_template(template_config: dict[str, Any], project_name: str, ta
         customizations["project_name"] = project_name
         customizations["project_slug"] = project_slug
 
-        print(f"  Applying customizations...")
+        print("  Applying customizations...")
         apply_customizations(tmp_path, customizations)
 
         # Copy to final location
