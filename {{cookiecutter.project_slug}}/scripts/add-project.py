@@ -119,6 +119,118 @@ def run_cookiecutter(template_config: dict[str, Any], project_name: str, target_
     return generated_dirs[0]
 
 
+def clone_github_template(template_config: dict[str, Any], project_name: str, target_dir: Path) -> Path:
+    """Clone a GitHub template repository directly (non-cookiecutter)"""
+    import shutil
+    import tempfile
+
+    repo = template_config["repo"]
+    version = template_config.get("version", "main")
+
+    print(f"Cloning GitHub template: {repo} @ {version}")
+    print(f"Target directory: {target_dir}")
+
+    # Convert project_name to slug (same logic as cookiecutter)
+    project_slug = project_name.lower().replace(" ", "-").replace("_", "-")
+    project_slug = project_slug.replace(".", "-").replace("/", "-").replace("\\", "-")
+    # Remove invalid characters and clean up
+    import re
+
+    project_slug = re.sub(r"[^a-z0-9-]", "-", project_slug)
+    project_slug = re.sub(r"-+", "-", project_slug)
+    project_slug = project_slug.strip("-")
+
+    final_path = target_dir / project_slug
+
+    # Clone to temporary directory first
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir) / "template"
+
+        print("  Cloning repository...")
+        try:
+            # Clone the specific branch
+            subprocess.run(
+                ["git", "clone", "--branch", version, "--depth", "1", repo, str(tmp_path)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Error cloning repository: {e}")
+            print(f"stderr: {e.stderr}")
+            sys.exit(1)
+
+        # Remove .git directory from cloned template
+        git_dir = tmp_path / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
+
+        # Apply customizations (always include project_name and project_slug)
+        customizations = template_config.get("customizations", {}).copy()
+        customizations["project_name"] = project_name
+        customizations["project_slug"] = project_slug
+
+        print("  Applying customizations...")
+        apply_customizations(tmp_path, customizations)
+
+        # Copy to final location
+        if final_path.exists():
+            print(f"  Warning: {final_path} already exists, removing...")
+            shutil.rmtree(final_path)
+
+        shutil.copytree(tmp_path, final_path)
+        print(f"  ✓ Created project at {final_path.relative_to(target_dir.parent)}")
+
+    return final_path
+
+
+def apply_customizations(project_path: Path, customizations: dict[str, str]) -> None:
+    """Apply simple text replacements to customize a GitHub template"""
+    import json
+
+    # Files to customize (common configuration files)
+    customizable_files = [
+        "package.json",
+        "README.md",
+        "vite.config.ts",
+        "vite.config.js",
+        "tsconfig.json",
+    ]
+
+    for file_name in customizable_files:
+        file_path = project_path / file_name
+        if not file_path.exists():
+            continue
+
+        try:
+            content = file_path.read_text()
+            original_content = content
+
+            # For package.json, update the name field properly
+            if file_name == "package.json":
+                try:
+                    pkg_data = json.loads(content)
+                    if "project_name" in customizations:
+                        pkg_data["name"] = customizations["project_slug"]
+                    content = json.dumps(pkg_data, indent=2) + "\n"
+                except json.JSONDecodeError:
+                    # Fall back to text replacement if JSON is invalid
+                    pass
+
+            # Apply text replacements
+            for key, value in customizations.items():
+                # Replace {key} placeholders
+                placeholder = "{" + key + "}"
+                content = content.replace(placeholder, value)
+
+            if content != original_content:
+                file_path.write_text(content)
+                print(f"    Customized {file_name}")
+
+        except Exception as e:
+            print(f"    Warning: Could not customize {file_name}: {e}")
+
+
 def move_nested_project(project_path: Path, target_dir: Path) -> Path:
     """
     Move a nested project to the target directory and clean up wrapper.
@@ -154,6 +266,85 @@ def move_nested_project(project_path: Path, target_dir: Path) -> Path:
         return final_path
 
     return project_path
+
+
+def generate_webstorm_run_configs(project_path: Path, monorepo_root: Path) -> None:
+    """
+    Generate WebStorm run configurations for TypeScript/JavaScript projects.
+
+    Creates .run/*.run.xml files based on package.json scripts.
+    """
+    import json
+
+    package_json_path = project_path / "package.json"
+    if not package_json_path.exists():
+        return
+
+    try:
+        with open(package_json_path) as f:
+            package_data = json.load(f)
+    except json.JSONDecodeError:
+        print("  Warning: Could not parse package.json for run configurations")
+        return
+
+    scripts = package_data.get("scripts", {})
+    if not scripts:
+        return
+
+    # Determine which scripts to create run configurations for
+    # Map script names to display names and whether they should be created
+    script_configs = {
+        "dev": ("Dev Server", True),
+        "start": ("Start", True),
+        "build": ("Build", True),
+        "test": ("Tests", True),
+        "test:watch": ("Tests (Watch)", True),
+        "test:ui": ("Tests (UI)", True),
+        "test:coverage": ("Test Coverage", True),
+        "lint": ("Lint", True),
+        "typecheck": ("Typecheck", True),
+        "format": ("Format", True),
+    }
+
+    # Create .run directory if it doesn't exist
+    run_dir = monorepo_root / ".run"
+    run_dir.mkdir(exist_ok=True)
+
+    # Get project name for config naming
+    project_name = project_path.name
+    project_rel_path = project_path.relative_to(monorepo_root)
+
+    configs_created = []
+
+    for script_name, (display_name, should_create) in script_configs.items():
+        if script_name not in scripts or not should_create:
+            continue
+
+        # Create safe filename (replace special chars)
+        safe_name = display_name.replace(" ", "_").replace("(", "").replace(")", "")
+        config_filename = f"{project_name}__{safe_name}.run.xml"
+        config_path = run_dir / config_filename
+
+        # WebStorm run configuration XML
+        config_content = f"""<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="{project_name}: {display_name}" type="js.build_tools.npm">
+    <package-json value="$PROJECT_DIR$/{project_rel_path}/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="{script_name}" />
+    </scripts>
+    <node-interpreter value="project" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>
+"""
+
+        config_path.write_text(config_content)
+        configs_created.append(display_name)
+
+    if configs_created:
+        print(f"  Created {len(configs_created)} WebStorm run configuration(s): {', '.join(configs_created)}")
 
 
 def integrate_project(project_path: Path, monorepo_root: Path) -> None:
@@ -471,9 +662,13 @@ def integrate_project(project_path: Path, monorepo_root: Path) -> None:
                     json.dump(package_data, f, indent=2)
                     f.write("\n")  # Add trailing newline
 
+    # 11. Generate WebStorm run configurations for TypeScript projects
+    if project_type in ["typescript", "hybrid"]:
+        generate_webstorm_run_configs(project_path, monorepo_root)
+
     print("  ✓ Integration complete!")
 
-    # 11. Update workspaces
+    # 12. Update workspaces
     print("\nUpdating workspaces...")
 
     if project_type in ["python", "hybrid"]:
@@ -526,12 +721,22 @@ def main() -> None:
         print(f"Creating directory: {target_dir}")
         target_dir.mkdir(parents=True)
 
-    # Run cookiecutter
-    project_path = run_cookiecutter(template_config, project_name, target_dir)
+    # Determine template type (default to cookiecutter for backward compatibility)
+    template_type = template_config.get("template_type", "cookiecutter")
 
-    # Move nested project if needed (extract from workspace wrapper)
-    if "integrate_path" in template_config:
-        project_path = move_nested_project(project_path, target_dir)
+    # Generate/clone the project based on template type
+    if template_type == "github-template":
+        project_path = clone_github_template(template_config, project_name, target_dir)
+    elif template_type == "cookiecutter":
+        project_path = run_cookiecutter(template_config, project_name, target_dir)
+
+        # Move nested project if needed (extract from workspace wrapper)
+        if "integrate_path" in template_config:
+            project_path = move_nested_project(project_path, target_dir)
+    else:
+        print(f"Error: Unknown template_type '{template_type}'")
+        print("Supported types: 'cookiecutter', 'github-template'")
+        sys.exit(1)
 
     # Integrate with monorepo
     integrate_project(project_path, monorepo_root)
