@@ -32,6 +32,7 @@ jobs:
         run: |
           cookiecutter . --no-input \
             project_name="Test Monorepo" \
+            project_description="A test monorepo for CI testing" \
             author_name="Test Author" \
             github_username="testuser"
 
